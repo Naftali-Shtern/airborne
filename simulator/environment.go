@@ -1,6 +1,7 @@
 package simulator
 
 import (
+	"fmt"
 	"log"
 	"math"
 	"time"
@@ -13,6 +14,15 @@ type Environment interface {
 	Apply(state AircraftState, dt time.Duration) AircraftState
 	// Snapshot returns the current parameters for observability.
 	Snapshot() EnvironmentSnapshot
+}
+
+// PathChecker is an optional interface for environments that can proactively
+// warn when a commanded path would descend below the terrain safety floor.
+// Compose it with Environment to enable pre-flight path validation.
+type PathChecker interface {
+	// CheckPath returns a warning string for each waypoint whose target altitude
+	// is below the terrain floor. fromAlt is the current aircraft altitude (m).
+	CheckPath(fromAlt float64, waypoints []Waypoint) []string
 }
 
 // ---- Wind ---------------------------------------------------------------
@@ -98,6 +108,20 @@ func (t TerrainEnvironment) Snapshot() EnvironmentSnapshot {
 	return EnvironmentSnapshot{TerrainFloor: t.GroundElevation + terrainSafetyMarginMeters}
 }
 
+// CheckPath implements PathChecker. Returns a warning for each waypoint whose
+// target altitude is below the terrain safety floor.
+func (t TerrainEnvironment) CheckPath(_ float64, waypoints []Waypoint) []string {
+	floor := t.GroundElevation + terrainSafetyMarginMeters
+	var warnings []string
+	for i, wp := range waypoints {
+		if wp.Alt < floor {
+			warnings = append(warnings, fmt.Sprintf(
+				"waypoint[%d] alt=%.1fm is below terrain floor=%.1fm", i, wp.Alt, floor))
+		}
+	}
+	return warnings
+}
+
 // ---- Composite ----------------------------------------------------------
 
 // MultiEnvironment chains multiple Environment implementations in order.
@@ -111,6 +135,18 @@ func (m MultiEnvironment) Apply(state AircraftState, dt time.Duration) AircraftS
 		s = e.Apply(s, dt)
 	}
 	return s
+}
+
+// CheckPath implements PathChecker for the composite by delegating to any child
+// that also implements PathChecker.
+func (m MultiEnvironment) CheckPath(fromAlt float64, waypoints []Waypoint) []string {
+	var all []string
+	for _, e := range m.Envs {
+		if pc, ok := e.(PathChecker); ok {
+			all = append(all, pc.CheckPath(fromAlt, waypoints)...)
+		}
+	}
+	return all
 }
 
 // Snapshot merges all child snapshots into one (last write wins per field).

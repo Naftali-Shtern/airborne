@@ -166,6 +166,38 @@ data: {"lat":32.0145,"lon":34.8922,"alt":541.1,"speed":97.5,...}
 
 ---
 
+### GET /map
+
+Serves the live browser map (`map.html`). Open it in any browser while the server
+is running — no extra setup required.
+
+```bash
+# Open in browser (recommended)
+start http://localhost:8080/map        # Windows
+open  http://localhost:8080/map        # macOS
+xdg-open http://localhost:8080/map     # Linux
+
+# Or fetch the raw HTML
+curl http://localhost:8080/map
+```
+
+**Map features**
+
+| Feature | How to use |
+|---------|-----------|
+| Live drone icon | Yellow SVG marker that rotates with the aircraft heading, updated at 10 Hz. |
+| **Right-click → Fly here** | Right-click anywhere on the map, enter a target altitude when prompted, and the map sends a `POST /command/goto` directly to the server. |
+| Trail | Toggle the flight-path trail ON/OFF with the button in the top-right corner. |
+| Re-center | Click **Re-center** to snap the view back to the drone. Auto-center re-engages on new data after a manual pan. |
+| Sidebar | Three panels: **Position** (lat/lon/alt), **Velocity** (vx/vy/vz + heading), **Environment** (wind, humidity, terrain floor). |
+| Live charts | Speed (horizontal + 3D), altitude over time, velocity components (vx/vy/vz). |
+| Mode badge | Top-left colour chip: **blue** = flying · **green** = holding · **red** = stopped · **grey** = idle. |
+
+All map interactions use the same REST API documented above — the map is a plain
+browser client, not a special protocol.
+
+---
+
 ## Validation Rules
 
 | Field | Constraint |
@@ -218,6 +250,53 @@ data: {"lat":32.0145,"lon":34.8922,"alt":541.1,"speed":97.5,...}
 - Environments are composable via `MultiEnvironment` and applied in order each tick.
 - All environment parameters are hard-coded at startup; a production system would
   expose them via configuration or a dedicated API.
+
+### Terrain Path Intersection Warning
+When a `goto` or `trajectory` command is received, the simulator proactively checks
+every target waypoint against the terrain safety floor (`GroundElevation + 50 m`).
+If any waypoint's altitude is below the floor, a warning is logged immediately —
+before the aircraft starts moving — so operators can catch bad commands early.
+
+The warning is advisory: the command is still accepted. The `TerrainEnvironment`
+will reactively clamp altitude to the floor during execution.
+
+**How to trigger and verify:**
+
+With default settings the terrain floor is **50 m ASL**. Any target below that altitude
+will produce a warning in the server log.
+
+```bash
+# Sends alt=10m — below the 50m floor
+curl -X POST http://localhost:8080/command/goto \
+  -H "Content-Type: application/json" \
+  -d '{"lat": 32.1, "lon": 34.9, "alt": 10}'
+```
+
+Expected server log output:
+```
+[terrain-warning] waypoint[0] alt=10.0m is below terrain floor=50.0m
+```
+
+For a trajectory with mixed altitudes:
+```bash
+curl -X POST http://localhost:8080/command/trajectory \
+  -H "Content-Type: application/json" \
+  -d '{
+    "waypoints": [
+      {"lat": 32.1, "lon": 34.9, "alt": 600},
+      {"lat": 32.2, "lon": 35.0, "alt": 20},
+      {"lat": 32.0, "lon": 35.1, "alt": 800}
+    ]
+  }'
+```
+
+Expected log:
+```
+[terrain-warning] waypoint[1] alt=20.0m is below terrain floor=50.0m
+```
+
+The `PathChecker` interface is optional — removing `TerrainEnvironment` from the
+environment chain disables the warning without touching any other code.
 
 ### Error Handling
 - Invalid JSON → `400 Bad Request`.
