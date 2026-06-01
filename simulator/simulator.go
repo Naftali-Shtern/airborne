@@ -51,8 +51,9 @@ func metersPerDegreeLon(latDeg float64) float64 {
 // All external access is mediated through typed channels – no shared mutable
 // state escapes the goroutine.
 type Simulator struct {
-	CmdChan      chan Command
-	StateReqChan chan chan AircraftState
+	CmdChan       chan Command
+	StateReqChan  chan chan AircraftState
+	EnvUpdateChan chan Environment // receives a replacement Environment at runtime
 
 	state      AircraftState
 	env        Environment
@@ -74,11 +75,12 @@ func New(initial AircraftState, env Environment, tick time.Duration) *Simulator 
 		initial.Env = env.Snapshot()
 	}
 	return &Simulator{
-		CmdChan:      make(chan Command, 100),
-		StateReqChan: make(chan chan AircraftState),
-		state:        initial,
-		env:          env,
-		tick:         tick,
+		CmdChan:       make(chan Command, 100),
+		StateReqChan:  make(chan chan AircraftState),
+		EnvUpdateChan: make(chan Environment, 1),
+		state:         initial,
+		env:           env,
+		tick:          tick,
 	}
 }
 
@@ -101,6 +103,11 @@ func (s *Simulator) Run(ctx context.Context) {
 
 		case cmd := <-s.CmdChan:
 			s.handleCommand(cmd, &activeCmd, &waypointIndex)
+
+		case env := <-s.EnvUpdateChan:
+			s.env = env
+			s.state.Env = env.Snapshot()
+			log.Printf("[sim] environment updated: %+v", env.Snapshot())
 
 		case respChan := <-s.StateReqChan:
 			respChan <- s.state

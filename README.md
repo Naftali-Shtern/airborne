@@ -166,6 +166,47 @@ data: {"lat":32.0145,"lon":34.8922,"alt":541.1,"speed":97.5,...}
 
 ---
 
+### POST /environment
+
+Reconfigure or disable environment effects at runtime — no restart needed.
+Each field is optional; **omitting a field disables that effect entirely**.
+
+```bash
+# Wind only (turn off humidity and terrain)
+curl -X POST http://localhost:8080/environment \
+  -H "Content-Type: application/json" \
+  -d '{"wind": {"vx": 10, "vy": 0, "vz": 0}}'
+
+# Wind + humidity, no terrain floor
+curl -X POST http://localhost:8080/environment \
+  -H "Content-Type: application/json" \
+  -d '{"wind": {"vx": 5, "vy": 2, "vz": 0}, "humidity": {"factor": 0.9}}'
+
+# All three effects active
+curl -X POST http://localhost:8080/environment \
+  -H "Content-Type: application/json" \
+  -d '{"wind": {"vx": 5, "vy": 2, "vz": 0}, "humidity": {"factor": 0.95}, "terrain": {"ground_elevation": 0}}'
+
+# Disable all effects
+curl -X POST http://localhost:8080/environment \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+Response: `202 Accepted`
+
+The updated environment takes effect on the very next simulator tick. Current
+parameters are always visible in the `wind_vx`, `wind_vy`, `humidity_factor`,
+and `terrain_floor` fields of `GET /state` and `GET /stream`.
+
+| Field | Constraint |
+|-------|-----------|
+| `wind.vx` / `vy` / `vz` | any float (m/s) |
+| `humidity.factor` | (0, 1] |
+| `terrain.ground_elevation` | ≥ 0 (m ASL) |
+
+---
+
 ### GET /map
 
 Serves the live browser map (`map.html`). Open it in any browser while the server

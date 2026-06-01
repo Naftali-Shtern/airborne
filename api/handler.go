@@ -13,15 +13,17 @@ import (
 
 // Handler holds the channels needed to communicate with the simulator.
 type Handler struct {
-	CmdChan      chan simulator.Command
-	StateReqChan chan chan simulator.AircraftState
+	CmdChan       chan simulator.Command
+	StateReqChan  chan chan simulator.AircraftState
+	EnvUpdateChan chan simulator.Environment
 }
 
 // New wires up all routes on the provided mux.
-func New(mux *http.ServeMux, cmdChan chan simulator.Command, stateReqChan chan chan simulator.AircraftState) *Handler {
+func New(mux *http.ServeMux, cmdChan chan simulator.Command, stateReqChan chan chan simulator.AircraftState, envUpdateChan chan simulator.Environment) *Handler {
 	h := &Handler{
-		CmdChan:      cmdChan,
-		StateReqChan: stateReqChan,
+		CmdChan:       cmdChan,
+		StateReqChan:  stateReqChan,
+		EnvUpdateChan: envUpdateChan,
 	}
 	mux.HandleFunc("GET /health", h.Health)
 	mux.HandleFunc("GET /state", h.State)
@@ -30,6 +32,7 @@ func New(mux *http.ServeMux, cmdChan chan simulator.Command, stateReqChan chan c
 	mux.HandleFunc("POST /command/trajectory", h.Trajectory)
 	mux.HandleFunc("POST /command/stop", h.Stop)
 	mux.HandleFunc("POST /command/hold", h.Hold)
+	mux.HandleFunc("POST /environment", h.UpdateEnvironment)
 	return h
 }
 
@@ -250,6 +253,73 @@ func (h *Handler) Stop(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Hold(w http.ResponseWriter, r *http.Request) {
 	log.Println("[api] hold")
 	h.sendCommand(simulator.Command{Type: simulator.CommandHold, IssuedAt: time.Now()})
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+// ---- Environment update DTOs --------------------------------------------
+
+type windConfig struct {
+	VX float64 `json:"vx"`
+	VY float64 `json:"vy"`
+	VZ float64 `json:"vz"`
+}
+
+type humidityConfig struct {
+	Factor float64 `json:"factor"`
+}
+
+type terrainConfig struct {
+	GroundElevation float64 `json:"ground_elevation"`
+}
+
+// environmentRequest lets callers enable, reconfigure, or disable individual
+// environment layers at runtime. Omit a field entirely to disable that layer.
+type environmentRequest struct {
+	Wind     *windConfig     `json:"wind,omitempty"`
+	Humidity *humidityConfig `json:"humidity,omitempty"`
+	Terrain  *terrainConfig  `json:"terrain,omitempty"`
+}
+
+// POST /environment — replace the active environment configuration.
+// Each layer is optional; omitting it disables that effect.
+//
+// Examples:
+//
+//	{"wind":{"vx":10,"vy":0,"vz":0}}                        → only wind
+//	{"wind":{"vx":5,"vy":2},"humidity":{"factor":0.9}}       → wind + humidity
+//	{}                                                        → all effects off
+func (h *Handler) UpdateEnvironment(w http.ResponseWriter, r *http.Request) {
+	var req environmentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	var envs []simulator.Environment
+
+	if req.Wind != nil {
+		envs = append(envs, simulator.WindEnvironment{
+			WindVX: req.Wind.VX, WindVY: req.Wind.VY, WindVZ: req.Wind.VZ,
+		})
+	}
+	if req.Humidity != nil {
+		if req.Humidity.Factor <= 0 || req.Humidity.Factor > 1 {
+			writeError(w, http.StatusUnprocessableEntity, "humidity factor must be in (0, 1]")
+			return
+		}
+		envs = append(envs, simulator.HumidityEnvironment{Factor: req.Humidity.Factor})
+	}
+	if req.Terrain != nil {
+		if req.Terrain.GroundElevation < 0 {
+			writeError(w, http.StatusUnprocessableEntity, "ground_elevation must be >= 0")
+			return
+		}
+		envs = append(envs, simulator.TerrainEnvironment{GroundElevation: req.Terrain.GroundElevation})
+	}
+
+	log.Printf("[api] environment update wind=%v humidity=%v terrain=%v",
+		req.Wind, req.Humidity, req.Terrain)
+	h.EnvUpdateChan <- simulator.MultiEnvironment{Envs: envs}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
