@@ -137,6 +137,31 @@ func (s *Simulator) handleCommand(cmd Command, activeCmd **Command, waypointIdx 
 		*waypointIdx = 0
 		s.state.Mode = ModeFlying
 	}
+	s.checkTerrainPath(cmd)
+}
+
+// checkTerrainPath logs a warning for every waypoint in cmd that would place
+// the aircraft below the terrain safety floor. No-op for stop/hold or when the
+// environment does not implement PathChecker.
+func (s *Simulator) checkTerrainPath(cmd Command) {
+	pc, ok := s.env.(PathChecker)
+	if !ok {
+		return
+	}
+	var waypoints []Waypoint
+	switch cmd.Type {
+	case CommandGoto:
+		if cmd.Target != nil {
+			waypoints = []Waypoint{*cmd.Target}
+		}
+	case CommandTrajectory:
+		waypoints = cmd.Waypoints
+	default:
+		return
+	}
+	for _, w := range pc.CheckPath(s.state.Alt, waypoints) {
+		log.Printf("[terrain-warning] %s", w)
+	}
 }
 
 // engageHold freezes the current position as the hold target and switches mode.
