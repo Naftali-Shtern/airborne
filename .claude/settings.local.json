@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/USER/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/5a3cf5f5-0772-40c3-b2ea-d2c457e24955/eb77454c-005c-41db-9431-cc81a0a8667a/skills/docx/**)",
+      "Bash(extract-text \"C:\\\\Users\\\\USER\\\\Downloads\\\\Home Assignment Senior Developer.docx\")",
+      "Bash(pandoc \"C:\\\\Users\\\\USER\\\\Downloads\\\\Home Assignment Senior Developer.docx\" -t markdown)",
+      "PowerShell(pandoc \"C:\\\\Users\\\\USER\\\\Downloads\\\\Home Assignment Senior Developer.docx\" -t markdown 2>&1)"
+    ]
+  }
+}

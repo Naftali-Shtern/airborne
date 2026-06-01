@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Airborne – Live Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+  header{background:#1a1d27;padding:9px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #2a2d3a;flex-shrink:0}
+  header h1{font-size:.95rem;font-weight:600;color:#7eb8f7}
+  #dot{width:9px;height:9px;border-radius:50%;background:#444;transition:background .3s}
+  #dot.live{background:#4caf50;box-shadow:0 0 5px #4caf50}
+  #mode{padding:3px 11px;border-radius:11px;font-size:.7rem;font-weight:700;background:#2a2d3a;color:#aaa;margin-left:auto;text-transform:uppercase;letter-spacing:.1em;transition:all .3s}
+  .hb{font-size:.68rem;background:#2a2d3a;border:1px solid #3a3d4a;color:#aaa;padding:3px 9px;border-radius:5px;cursor:pointer}
+  .hb:hover{background:#333;color:#fff}
+  .main{display:flex;flex:1;overflow:hidden}
+  #map{flex:1;min-width:0}
+  .sidebar{width:310px;flex-shrink:0;background:#1a1d27;display:flex;flex-direction:column;overflow-y:auto;border-left:1px solid #2a2d3a}
+  .panel{padding:11px 13px;border-bottom:1px solid #23263a}
+  .panel h3{font-size:.62rem;text-transform:uppercase;letter-spacing:.12em;color:#555;margin-bottom:7px}
+  .sg{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+  .sg3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px}
+  .st{background:#12141c;border-radius:5px;padding:6px 8px}
+  .lb{font-size:.58rem;color:#555;text-transform:uppercase;letter-spacing:.07em}
+  .vl{font-size:.92rem;font-weight:600;color:#ddd;margin-top:1px;font-variant-numeric:tabular-nums}
+  .un{font-size:.58rem;color:#444}
+  .charts{padding:9px;display:flex;flex-direction:column;gap:8px}
+  .cb{background:#12141c;border-radius:6px;padding:8px 9px}
+  .cb h4{font-size:.58rem;text-transform:uppercase;letter-spacing:.1em;color:#555;margin-bottom:5px}
+</style>
+</head>
+<body>
+<header>
+  <div id="dot"></div>
+  <h1>Airborne Live Map</h1>
+  <button class="hb" id="trail-btn">Trail: ON</button>
+  <button class="hb" id="center-btn">Re-center</button>
+  <span id="mode">CONNECTING</span>
+</header>
+<div class="main">
+  <div id="map"></div>
+  <div class="sidebar">
+    <div class="panel">
+      <h3>Position</h3>
+      <div class="sg">
+        <div class="st"><div class="lb">Latitude</div><div class="vl" id="v-lat">—</div></div>
+        <div class="st"><div class="lb">Longitude</div><div class="vl" id="v-lon">—</div></div>
+        <div class="st"><div class="lb">Altitude</div><div class="vl" id="v-alt">—</div></div>
+        <div class="st"><div class="lb">Heading</div><div class="vl" id="v-hdg">—</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Velocity (own thrust)</h3>
+      <div class="sg">
+        <div class="st"><div class="lb">Speed horiz</div><div class="vl" id="v-spd">—</div></div>
+        <div class="st"><div class="lb">Speed 3-D</div><div class="vl" id="v-sp3">—</div></div>
+        <div class="st"><div class="lb">VX east</div><div class="vl" id="v-vx">—</div></div>
+        <div class="st"><div class="lb">VY north</div><div class="vl" id="v-vy">—</div></div>
+        <div class="st"><div class="lb">VZ up</div><div class="vl" id="v-vz">—</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Environment</h3>
+      <div class="sg3">
+        <div class="st"><div class="lb">Wind VX</div><div class="vl" id="e-wvx">—</div></div>
+        <div class="st"><div class="lb">Wind VY</div><div class="vl" id="e-wvy">—</div></div>
+        <div class="st"><div class="lb">Wind VZ</div><div class="vl" id="e-wvz">—</div></div>
+        <div class="st"><div class="lb">Humidity</div><div class="vl" id="e-hum">—</div></div>
+        <div class="st"><div class="lb">Terr. Floor</div><div class="vl" id="e-ter">—</div></div>
+      </div>
+    </div>
+    <div class="charts">
+      <div class="cb"><h4>Speed (m/s)</h4><div style="position:relative;height:65px"><canvas id="c-spd"></canvas></div></div>
+      <div class="cb"><h4>Altitude (m)</h4><div style="position:relative;height:65px"><canvas id="c-alt"></canvas></div></div>
+      <div class="cb"><h4>Velocity components (m/s)</h4><div style="position:relative;height:70px"><canvas id="c-vel"></canvas></div></div>
+    </div>
+  </div>
+</div>
+<script>
+// ── Map ──────────────────────────────────────────────────────────────────
+const map = L.map('map',{zoomControl:true}).setView([32.0055,34.8854],13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map);
+
+function makeDroneIcon(h){
+  const s=`<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">
+    <g transform="rotate(${h},22,22)">
+      <polygon points="22,4 27,36 22,31 17,36" fill="#000" stroke="#000" stroke-width="6" stroke-linejoin="round" opacity="0.45"/>
+      <polygon points="22,4 27,36 22,31 17,36" fill="#FFE600" stroke="#e65c00" stroke-width="1.5"/>
+      <polygon points="4,26 40,26 22,17" fill="#FFE600" stroke="#e65c00" stroke-width="1.5" opacity="0.92"/>
+      <polygon points="14,34 30,34 22,28" fill="#ffc200" stroke="#e65c00" stroke-width="1"/>
+      <circle cx="22" cy="22" r="2.5" fill="#e65c00"/>
+    </g>
+  </svg>`;
+  return L.divIcon({className:'',html:s,iconSize:[44,44],iconAnchor:[22,22]});
+}
+
+let droneMarker=null, trail=[], trailEnabled=true, trailLine=null;
+let autoCenter=true, firstFix=true;
+let wpLayers=[];  // all waypoint-related map layers
+
+map.on('dragstart',()=>{autoCenter=false;});
+document.getElementById('trail-btn').addEventListener('click',function(){
+  trailEnabled=!trailEnabled;
+  this.textContent=`Trail: ${trailEnabled?'ON':'OFF'}`;
+  if(!trailEnabled&&trailLine){map.removeLayer(trailLine);trailLine=null;trail=[];}
+});
+document.getElementById('center-btn').addEventListener('click',()=>{
+  autoCenter=true;
+  if(droneMarker)map.setView(droneMarker.getLatLng(),map.getZoom());
+});
+
+function clearWpLayers(){wpLayers.forEach(l=>map.removeLayer(l));wpLayers=[];}
+
+function addLayer(l){l.addTo(map);wpLayers.push(l);return l;}
+
+function wpIcon(label,alt,color){
+  const ac=alt!=null?`<div style="font-size:8px;color:#fff;opacity:.9;line-height:1.1">${Math.round(alt)}m</div>`:'';
+  const h=`<div style="background:${color};border:2px solid #fff;border-radius:50% 50% 50% 0;
+    width:28px;height:28px;transform:rotate(-45deg);box-shadow:0 2px 6px rgba(0,0,0,.55);
+    display:flex;align-items:center;justify-content:center;">
+    <div style="transform:rotate(45deg);text-align:center;line-height:1.1">
+      <div style="font-size:10px;font-weight:700;color:#fff">${label}</div>${ac}
+    </div></div>`;
+  return L.divIcon({className:'',html:h,iconSize:[28,28],iconAnchor:[14,28]});
+}
+
+function arrowhead(from,to,color){
+  const dx=to.lng-from.lng, dy=to.lat-from.lat;
+  const angle=Math.atan2(dy,dx)*180/Math.PI;
+  return L.marker(to,{icon:L.divIcon({className:'',
+    html:`<div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:13px solid ${color};transform:rotate(${angle-90}deg);transform-origin:50% 100%;opacity:.85"></div>`,
+    iconSize:[14,13],iconAnchor:[7,13]})});
+}
+
+let lastActiveKey='';
+
+function activeKey(active){
+  if(!active||!active.type) return '';
+  if(active.type==='goto'&&active.target)
+    return `goto:${active.target.lat}:${active.target.lon}:${active.target.alt}`;
+  if(active.type==='trajectory'&&active.waypoints)
+    // NOTE: exclude waypoint_index — progress updates should NOT redraw all layers,
+    // only update the color of the current waypoint marker in place.
+    return `traj:${active.loop}:${active.waypoints.map(w=>`${w.lat},${w.lon},${w.alt}`).join('|')}`;
+  if(active.type==='hold'&&active.target)
+    return `hold:${active.target.lat}:${active.target.lon}`;
+  return active.type;
+}
+
+let lastWpIndex = -1;
+let wpMarkerRefs = []; // keep refs to trajectory markers for color updates
+
+function updateCurrentWaypoint(idx) {
+  if(idx === lastWpIndex) return;
+  lastWpIndex = idx;
+  wpMarkerRefs.forEach((m, i) => {
+    const done = i < idx;
+    const cur  = i === idx;
+    const color = done ? '#888' : cur ? '#ff6600' : '#ff9900';
+    // rebuild just the icon color without removing/re-adding the marker
+    const wp = m._wpData;
+    m.setIcon(wpIcon(i+1, wp.alt, color));
+  });
+}
+
+function syncWaypoints(active){
+  if(!active) return;
+  const t=active.type||'';
+  const key=activeKey(active);
+  if(key===lastActiveKey) {
+    // Same command, just update current waypoint highlight
+    if(t==='trajectory') updateCurrentWaypoint(active.waypoint_index||0);
+    return;
+  }
+  lastActiveKey=key;
+  lastWpIndex=-1;
+  wpMarkerRefs=[];
+
+  clearWpLayers();
+  if(t==='goto'&&active.target){
+    const wp=active.target;
+    addLayer(L.marker([wp.lat,wp.lon],{icon:wpIcon('T',wp.alt,'#e53935')})
+      .bindTooltip(`Target<br>${wp.lat.toFixed(4)}, ${wp.lon.toFixed(4)}<br>Alt: ${Math.round(wp.alt)}m`,{direction:'top'}));
+  } else if(t==='trajectory'&&(active.waypoints||[]).length>0){
+    const wps=active.waypoints;
+    const cur=active.waypoint_index||0;
+    wps.forEach((wp,i)=>{
+      const done=i<cur;
+      const color=done?'#888':i===cur?'#ff6600':'#ff9900';
+      const m=addLayer(L.marker([wp.lat,wp.lon],{icon:wpIcon(i+1,wp.alt,color)})
+        .bindTooltip(`WP ${i+1}${done?' ✓':i===cur?' ◀ current':''}<br>Alt: ${Math.round(wp.alt)}m`,{direction:'top'}));
+      m._wpData = wp; // store for color updates
+      wpMarkerRefs.push(m);
+    });
+    // Dashed arrows between waypoints
+    for(let i=0;i<wps.length-1;i++){
+      const a=L.latLng(wps[i].lat,wps[i].lon), b=L.latLng(wps[i+1].lat,wps[i+1].lon);
+      const done=i<cur;
+      const col=done?'#555':'#ff9900';
+      addLayer(L.polyline([a,b],{color:col,weight:2,dashArray:'7,4',opacity:.8}));
+      addLayer(arrowhead(a,b,col));
+    }
+    // Loop arrow
+    if(active.loop&&wps.length>1){
+      const a=L.latLng(wps[wps.length-1].lat,wps[wps.length-1].lon);
+      const b=L.latLng(wps[0].lat,wps[0].lon);
+      addLayer(L.polyline([a,b],{color:'#e040fb',weight:2,dashArray:'5,5',opacity:.75}));
+      addLayer(arrowhead(a,b,'#e040fb'));
+      const mid=L.latLng((a.lat+b.lat)/2,(a.lng+b.lng)/2);
+      addLayer(L.marker(mid,{icon:L.divIcon({className:'',
+        html:`<div style="background:#e040fb;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.5)">↻ LOOP</div>`,
+        iconAnchor:[24,10]})}));
+    }
+  } else if(t==='hold'&&active.target){
+    const wp=active.target;
+    addLayer(L.circle([wp.lat,wp.lon],{radius:20,color:'#4caf50',fillColor:'#4caf50',fillOpacity:.15,weight:1.5})
+      .bindTooltip(`Hold point<br>Alt: ${Math.round(wp.alt)}m`,{direction:'top'}));
+  } else if(t===''||t==='stop'){
+    clearWpLayers();
+  }
+}
+
+function updateMap(lat,lon,heading){
+  const ll=[lat,lon];
+  if(!droneMarker){droneMarker=L.marker(ll,{icon:makeDroneIcon(heading),zIndexOffset:1000}).addTo(map);}
+  else{droneMarker.setLatLng(ll);droneMarker.setIcon(makeDroneIcon(heading));}
+  if(autoCenter||firstFix){map.setView(ll,firstFix?13:map.getZoom());firstFix=false;}
+  if(trailEnabled){
+    trail.push(ll);if(trail.length>3000)trail.shift();
+    if(trailLine)map.removeLayer(trailLine);
+    trailLine=L.polyline(trail,{color:'#FFE600',weight:2,opacity:.4}).addTo(map);
+  }
+}
+
+// Right-click → fly here
+map.on('contextmenu',function(e){
+  const lat=+e.latlng.lat.toFixed(5), lon=+e.latlng.lng.toFixed(5);
+  const alt=prompt(`Fly to (${lat}, ${lon})\nAltitude (m):`, '500');
+  if(alt===null)return;
+  const spd=prompt('Speed m/s (blank = default 100):','');
+  const body={lat,lon,alt:+alt};
+  if(spd&&spd.trim())body.speed=+spd;
+  fetch('/command/goto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+});
+
+// ── Charts ───────────────────────────────────────────────────────────────
+const MAX=150;
+function makeChart(id,datasets){
+  return new Chart(document.getElementById(id),{
+    type:'line',
+    data:{labels:Array(MAX).fill(''),datasets:datasets.map(d=>({
+      ...d,data:Array(MAX).fill(null),tension:.3,pointRadius:0,borderWidth:1.5,spanGaps:false
+    }))},
+    options:{
+      animation:false,responsive:false,
+      plugins:{legend:{labels:{color:'#666',font:{size:9},boxWidth:10}}},
+      scales:{
+        x:{display:false},
+        y:{
+          ticks:{color:'#555',font:{size:9},maxTicksLimit:4},
+          grid:{color:'#1e2130'},
+          grace:'5%'
+        }
+      }
+    }
+  });
+}
+const cSpd=makeChart('c-spd',[{label:'Horiz',borderColor:'#FFE600'},{label:'3-D',borderColor:'#f7a07e'}]);
+const cAlt=makeChart('c-alt',[{label:'Alt',borderColor:'#6fcf97'}]);
+const cVel=makeChart('c-vel',[{label:'VX',borderColor:'#7eb8f7'},{label:'VY',borderColor:'#6fcf97'},{label:'VZ',borderColor:'#f7a07e'}]);
+
+function pushChart(c,...vs){
+  c.data.datasets.forEach((d,i)=>{d.data.shift();d.data.push(vs[i]??null);});
+  c.data.labels.shift();c.data.labels.push('');
+  c.update('none');
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────
+const f=(v,d=2,u='')=>typeof v==='number'?v.toFixed(d)+(u?` <span class="un">${u}</span>`:''):'—';
+const MC={flying:{bg:'#1a3a5c',fg:'#7eb8f7'},holding:{bg:'#1a3a20',fg:'#6fcf97'},stopped:{bg:'#3a1a1a',fg:'#eb5757'},idle:{bg:'#2a2d3a',fg:'#888'}};
+
+function updateStats(s){
+  document.getElementById('v-lat').innerHTML=f(s.lat,5);
+  document.getElementById('v-lon').innerHTML=f(s.lon,5);
+  document.getElementById('v-alt').innerHTML=f(s.alt,1,'m');
+  document.getElementById('v-hdg').innerHTML=f(s.heading,1,'°');
+  document.getElementById('v-spd').innerHTML=f(s.speed,2,'m/s');
+  document.getElementById('v-sp3').innerHTML=f(s.speed_3d,2,'m/s');
+  document.getElementById('v-vx').innerHTML=f(s.vx,2,'m/s');
+  document.getElementById('v-vy').innerHTML=f(s.vy,2,'m/s');
+  document.getElementById('v-vz').innerHTML=f(s.vz,2,'m/s');
+  document.getElementById('e-wvx').innerHTML=f(s.wind_vx,1,'m/s');
+  document.getElementById('e-wvy').innerHTML=f(s.wind_vy,1,'m/s');
+  document.getElementById('e-wvz').innerHTML=f(s.wind_vz,1,'m/s');
+  document.getElementById('e-hum').innerHTML=s.humidity_factor?(s.humidity_factor*100).toFixed(0)+'%':'—';
+  document.getElementById('e-ter').innerHTML=f(s.terrain_floor,0,'m');
+  const b=document.getElementById('mode');
+  b.textContent=(s.mode||'?').toUpperCase();
+  const c=MC[s.mode]||MC.idle;
+  b.style.background=c.bg;b.style.color=c.fg;
+}
+
+// ── SSE ──────────────────────────────────────────────────────────────────
+function connect(){
+  const dot=document.getElementById('dot');
+  const es=new EventSource('/stream');
+  es.onopen=()=>dot.classList.add('live');
+  es.onerror=()=>{dot.classList.remove('live');es.close();setTimeout(connect,2000);};
+  es.onmessage=(e)=>{
+    let s;try{s=JSON.parse(e.data);}catch{return;}
+    updateMap(s.lat,s.lon,s.heading);
+    updateStats(s);
+    syncWaypoints(s.active);
+    pushChart(cSpd,s.speed,s.speed_3d);
+    pushChart(cAlt,s.alt);
+    pushChart(cVel,s.vx,s.vy,s.vz);
+  };
+}
+connect();
+
+// Resize charts to fill their fixed-height containers correctly.
+function resizeCharts(){
+  [cSpd,cAlt,cVel].forEach(c=>{
+    const container = c.canvas.parentElement;
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    if(w>0 && h>0 && (c.canvas.width!==w || c.canvas.height!==h)){
+      c.resize(w,h);
+    }
+  });
+}
+// Delay initial resize so DOM is fully laid out
+setTimeout(resizeCharts, 100);
+window.addEventListener('resize', resizeCharts);
+</script>
+</body>
+</html>
