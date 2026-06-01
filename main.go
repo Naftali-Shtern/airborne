@@ -43,7 +43,7 @@ func main() {
 
 	// ---- HTTP server ----------------------------------------------------
 	mux := http.NewServeMux()
-	api.New(mux, sim.CmdChan, sim.StateReqChan)
+	api.New(mux, sim.CmdChan, sim.StateReqChan, sim.EnvUpdateChan)
 
 	// Serve map.html from the directory where the binary is run.
 	mux.HandleFunc("GET /map", func(w http.ResponseWriter, r *http.Request) {
