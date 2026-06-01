@@ -168,6 +168,8 @@ data: {"lat":32.0145,"lon":34.8922,"alt":541.1,"speed":97.5,...}
 
 ### GET /map
 
+![alt text](map.png)
+
 Serves the live browser map (`map.html`). Open it in any browser while the server
 is running — no extra setup required.
 
